@@ -188,39 +188,28 @@ async function sendDm(opts) {
 
     const signedEvent = finalizeEvent(unsignedEvent, skBytes);
 
-    let pool;
+    await ensureWebSocket();
+
+    const pool = new SimplePool();
     try {
-        await ensureWebSocket();
-        pool = new SimplePool();
+        const publishPromises = pool.publish(opts.relays, signedEvent);
+        const results = await Promise.allSettled(publishPromises);
 
-        const publishTasks = opts.relays.map((relayUrl) => {
-            const publishPromises = pool.publish([relayUrl], signedEvent);
-            const publishPromise = publishPromises[0];
-            return publishPromise
-                .then(() => relayUrl)
-                .catch((err) => {
-                    throw new Error(
-                        `${relayUrl}: ${err instanceof Error ? err.message : typeof err === "string" ? err : "unknown error"}`,
-                    );
-                });
-        });
+        const succeeded = [];
+        const failed = [];
 
-        const results = await Promise.allSettled(publishTasks);
-        const succeeded = results
-            .map((result, idx) => ({ result, relay: opts.relays[idx] }))
-            .filter((entry) => entry.result.status === "fulfilled")
-            .map((entry) => entry.result.value || entry.relay);
-        const failed = results
-            .map((result, idx) => ({ result, relay: opts.relays[idx] }))
-            .filter((entry) => entry.result.status === "rejected")
-            .map(
-                (entry) =>
-                    `${entry.relay}: ${
-                        entry.result.reason instanceof Error
-                            ? entry.result.reason.message
-                            : String(entry.result.reason)
+        results.forEach((result, idx) => {
+            const relayUrl = opts.relays[idx];
+            if (result.status === "fulfilled") {
+                succeeded.push(relayUrl);
+            } else {
+                failed.push(
+                    `${relayUrl}: ${
+                        result.reason instanceof Error ? result.reason.message : String(result.reason)
                     }`,
-            );
+                );
+            }
+        });
 
         if (succeeded.length === 0) {
             throw new Error(`Failed to publish DM to any relay. Details: ${failed.join("; ")}`);
@@ -231,11 +220,9 @@ async function sendDm(opts) {
             console.warn(`Failed relays: ${failed.join("; ")}`);
         }
     } finally {
-        if (pool) {
-            try {
-                pool.close(opts.relays);
-            } catch (_) {}
-        }
+        try {
+            pool.close(opts.relays);
+        } catch (_) {}
     }
 }
 

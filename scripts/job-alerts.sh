@@ -273,8 +273,10 @@ main() {
     fetch_feed "$tmp_feed"
 
     local summary
-    if ! summary=$(generate_message "$tmp_feed"); then
-        local status=$?
+    local status
+    summary=$(generate_message "$tmp_feed")
+    status=$?
+    if [[ $status -ne 0 ]]; then
         if [[ $status -eq 2 ]]; then
             log "No new job postings found"
             exit 0

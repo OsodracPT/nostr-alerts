@@ -329,8 +329,11 @@ main() {
     ensure_prereqs
 
     local summary
-    if ! summary=$(run_keyword_scan); then
-        local status=$?
+    local summary
+    local status
+    summary=$(run_keyword_scan)
+    status=$?
+    if [[ $status -ne 0 ]]; then
         if [[ $status -eq 2 ]]; then
             log "No new jobs across all keywords"
             exit 0
