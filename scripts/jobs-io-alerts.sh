@@ -154,7 +154,8 @@ ensure_prereqs() {
 
 run_keyword_scan() {
     local python_output
-    if python_output=$(
+    local status
+    python_output=$(
         python - "$STATE_FILE" "$ITEM_LIMIT" "${KEYWORDS[@]}" <<'PY'
 import sys
 import json
@@ -293,15 +294,19 @@ if not any_new:
 save_state(state)
 print("\n".join(summary_lines).rstrip())
 PY
-    ); then
+    )
+    status=$?
+
+    if [[ $status -eq 0 ]]; then
         printf '%s\n' "$python_output"
-    else
-        local status=$?
-        if [[ $status -eq 2 ]]; then
-            return 2
-        fi
-        return $status
+        return 0
     fi
+
+    if [[ $status -eq 2 ]]; then
+        return 2
+    fi
+
+    return $status
 }
 
 send_notification() {

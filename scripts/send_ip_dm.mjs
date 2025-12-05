@@ -3,10 +3,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { SimplePool, finalizeEvent, getPublicKey, nip04, nip19 } from "nostr-tools";
+import { finalizeEvent, getPublicKey, nip04, nip19, relayInit } from "nostr-tools";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 
 const DEFAULT_ENV_FILE = ".env";
+const PUBLISH_TIMEOUT_MS = 10000;
 
 function printUsage() {
     console.log(`Usage: node scripts/send_ip_dm.mjs --recipient <npub|hex> --message <text> --relay <wss://relay>
@@ -149,6 +150,67 @@ function loadEnvFile(envFile) {
         });
 }
 
+async function ensureWebSocket() {
+    if (typeof globalThis.WebSocket !== "undefined") return;
+
+    let wsModule;
+    try {
+        wsModule = await import("ws");
+    } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        throw new Error(
+            `No WebSocket implementation available. Install dependencies with npm install. Original error: ${reason}`,
+        );
+    }
+
+    const WebSocketImpl = wsModule.WebSocket || wsModule.default;
+    if (!WebSocketImpl) throw new Error("Failed to load WebSocket implementation from 'ws'");
+    globalThis.WebSocket = WebSocketImpl;
+}
+
+function formatRelayErrors(errors) {
+    return errors
+        .map(
+            ({ relay, error }) =>
+                `${relay}: ${error instanceof Error ? error.message : typeof error === "string" ? error : "Unknown error"}`,
+        )
+        .join("; ");
+}
+
+async function publishToRelay(relayUrl, signedEvent) {
+    const relay = relayInit(relayUrl);
+
+    try {
+        await relay.connect();
+    } catch (err) {
+        throw new Error(`${relayUrl} connect failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    return await new Promise((resolve, reject) => {
+        const pub = relay.publish(signedEvent);
+        let settled = false;
+
+        const finalize = (action, value) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            try {
+                relay.close();
+            } catch (_) {}
+            action(value);
+        };
+
+        const timer = setTimeout(() => finalize(reject, new Error("Publish timeout")), PUBLISH_TIMEOUT_MS);
+
+        pub.on("ok", () => finalize(resolve, relayUrl));
+        pub.on("seen", () => finalize(resolve, relayUrl));
+        pub.on("failed", (reason) => {
+            const err = reason instanceof Error ? reason : new Error(typeof reason === "string" ? reason : "Publish failed");
+            finalize(reject, err);
+        });
+    });
+}
+
 async function sendDm(opts) {
     if (!opts.recipient) throw new Error("--recipient is required");
     if (!opts.message) throw new Error("--message is required");
@@ -170,15 +232,30 @@ async function sendDm(opts) {
 
     const signedEvent = finalizeEvent(unsignedEvent, skBytes);
 
-    const pool = new SimplePool();
-    const publishedRelays = await pool.publish(opts.relays, signedEvent);
-    pool.close(opts.relays);
+    await ensureWebSocket();
 
-    if (!publishedRelays || publishedRelays.length === 0) {
-        throw new Error("Event not acknowledged by any relay");
+    const results = await Promise.allSettled(opts.relays.map((relayUrl) => publishToRelay(relayUrl, signedEvent)));
+
+    const succeeded = [];
+    const failed = [];
+
+    results.forEach((result, idx) => {
+        const relayUrl = opts.relays[idx];
+        if (result.status === "fulfilled") {
+            succeeded.push(relayUrl);
+        } else {
+            failed.push({ relay: relayUrl, error: result.reason });
+        }
+    });
+
+    if (succeeded.length === 0) {
+        throw new Error(`Failed to publish DM to any relay. Details: ${formatRelayErrors(failed)}`);
     }
 
-    console.log(`DM sent via ${publishedRelays.join(", ")}`);
+    console.log(`DM sent via ${succeeded.join(", ")}`);
+    if (failed.length > 0) {
+        console.warn(`Failed relays: ${formatRelayErrors(failed)}`);
+    }
 }
 
 async function main() {
@@ -186,6 +263,7 @@ async function main() {
         const opts = parseArgs(process.argv.slice(2));
         loadEnvFile(opts.envFile);
         await sendDm(opts);
+        process.exit(0);
     } catch (err) {
         if (err instanceof Error) {
             console.error(err.message);
