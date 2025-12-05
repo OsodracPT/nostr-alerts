@@ -10,6 +10,7 @@ NODE_SCRIPT="scripts/send_ip_dm.mjs"
 KEY_ENV="NOSTR_PRIVATE_KEY"
 ENV_FILE=".env"
 ITEM_LIMIT=5
+TMP_FEED=""
 
 usage() {
     cat <<'EOF'
@@ -111,6 +112,13 @@ load_env_file() {
 
 is_url() {
     [[ "$1" =~ ^https?:// ]]
+}
+
+cleanup_tmp_feed() {
+    if [[ -n "${TMP_FEED:-}" && -f "$TMP_FEED" ]]; then
+        rm -f "$TMP_FEED"
+        TMP_FEED=""
+    fi
 }
 
 ensure_prereqs() {
@@ -266,22 +274,23 @@ main() {
     load_env_file
     ensure_prereqs
 
-    local tmp_feed=""
-    tmp_feed=$(mktemp)
-    trap '[ -n "$tmp_feed" ] && rm -f "$tmp_feed"' EXIT
+    TMP_FEED=$(mktemp)
+    trap 'cleanup_tmp_feed' EXIT
 
-    fetch_feed "$tmp_feed"
+    fetch_feed "$TMP_FEED"
 
     local summary
     local status
-    summary=$(generate_message "$tmp_feed")
+    summary=$(generate_message "$TMP_FEED")
     status=$?
     if [[ $status -ne 0 ]]; then
         if [[ $status -eq 2 ]]; then
             log "No new job postings found"
+            cleanup_tmp_feed
             exit 0
         fi
         log "Failed to generate job summary (exit code $status)"
+        cleanup_tmp_feed
         exit "$status"
     fi
 
@@ -290,6 +299,7 @@ main() {
     log "Sending job summary covering $line_count lines"
     send_notification "$summary"
     log "Job summary sent successfully"
+    cleanup_tmp_feed
 }
 
 main "$@"
