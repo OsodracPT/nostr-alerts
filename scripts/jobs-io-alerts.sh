@@ -328,7 +328,8 @@ main() {
     load_env_file
     ensure_prereqs
 
-    local summary
+    log "Scanning jobs-io keywords (${#KEYWORDS[@]} terms)"
+
     local summary
     local status
     summary=$(run_keyword_scan)

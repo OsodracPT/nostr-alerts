@@ -266,9 +266,9 @@ main() {
     load_env_file
     ensure_prereqs
 
-    local tmp_feed
+    local tmp_feed=""
     tmp_feed=$(mktemp)
-    trap 'rm -f "$tmp_feed"' EXIT
+    trap '[ -n "$tmp_feed" ] && rm -f "$tmp_feed"' EXIT
 
     fetch_feed "$tmp_feed"
 
