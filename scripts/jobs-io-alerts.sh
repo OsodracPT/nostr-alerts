@@ -283,10 +283,9 @@ for keyword in KEYWORDS:
     if len(new_jobs) > LIMIT:
         summary_lines.append(f"  ... +{len(new_jobs) - LIMIT} weitere neue Stellen")
     summary_lines.append("")
-    updated_links = new_jobs[:LIMIT]
-    stored_links = [job["link"] for job in updated_links]
-    stored_links.extend(list(seen_links))
-    state[keyword_norm] = stored_links[:200]
+    updated_links = [job["link"] for job in new_jobs if job["link"]]
+    updated_links.extend(list(seen_links))
+    state[keyword_norm] = updated_links[:200]
 
 if not any_new:
     sys.exit(2)
