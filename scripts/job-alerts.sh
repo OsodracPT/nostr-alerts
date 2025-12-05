@@ -159,17 +159,8 @@ fetch_feed() {
 generate_message() {
     local feed_file="$1"
     local output
-    if output=$(python - "$feed_file" "$STATE_FILE" "$ITEM_LIMIT" <<'PY'
-); then
-        printf '%s\n' "$output"
-    else
-        local status=$?
-        if [[ $status -eq 2 ]]; then
-            return 2
-        fi
-        return $status
-    fi
-PY
+    if output=$(
+        python - "$feed_file" "$STATE_FILE" "$ITEM_LIMIT" <<'PY'
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -239,6 +230,15 @@ for link in seen:
 
 state_path.write_text("\n".join(updated_links), encoding="utf-8")
 PY
+    ); then
+        printf '%s\n' "$output"
+    else
+        local status=$?
+        if [[ $status -eq 2 ]]; then
+            return 2
+        fi
+        return $status
+    fi
 }
 
 send_notification() {
