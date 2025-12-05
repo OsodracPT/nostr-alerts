@@ -159,7 +159,8 @@ fetch_feed() {
 generate_message() {
     local feed_file="$1"
     local output
-    if output=$(python - "$feed_file" "$STATE_FILE" "$ITEM_LIMIT" <<'PY'); then
+    if output=$(python - "$feed_file" "$STATE_FILE" "$ITEM_LIMIT" <<'PY'
+); then
         printf '%s\n' "$output"
     else
         local status=$?

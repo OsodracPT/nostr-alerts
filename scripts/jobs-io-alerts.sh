@@ -154,7 +154,8 @@ ensure_prereqs() {
 
 run_keyword_scan() {
     local python_output
-    if python_output=$(python - "$STATE_FILE" "$ITEM_LIMIT" "${KEYWORDS[@]}" <<'PY'); then
+    if python_output=$(python - "$STATE_FILE" "$ITEM_LIMIT" "${KEYWORDS[@]}" <<'PY'
+); then
         printf '%s\n' "$python_output"
     else
         local status=$?
